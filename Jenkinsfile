@@ -18,7 +18,8 @@ pipeline {
         choice(name: 'deploy_to', choices: ['dev', 'qa', 'prod'], description: 'Pick the Environment') 
     } 
    // Build  
-    stages {
+    stages { 
+
         stage('Deploy') {
             steps {
                 script {
@@ -58,7 +59,9 @@ pipeline {
 
                     } 
                 } 
-            }
+            } 
+         } 
+
     } 
     
     post { 
