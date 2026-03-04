@@ -3,7 +3,7 @@ pipeline {
         label 'AGENT-1'
     }
     environment {
-        appversion = ''
+        appVersion = ''
         REGION = "us-east-1"
         ACC_ID = "485067906741"
         PROJECT = "roboshop"
@@ -14,36 +14,11 @@ pipeline {
         disableConcurrentBuilds()
     } 
     parameters {
-        string(name: 'appversion', description: 'Image version of the application') 
+        string(name: 'appVersion', description: 'Image version of the application') 
         choice(name: 'deploy_to', choices: ['dev', 'qa', 'prod'], description: 'Pick the Environment') 
     } 
    // Build  
-    stages { 
-        stage('Check Status'){
-            steps{
-                script{
-                    withAWS(credentials: 'aws-credits', region: 'us-east-1') {
-                        def deploymentStatus = sh(returnStdout: true, script: "kubectl rollout status deployment/catalogue --timeout=30s -n $PROJECT || echo FAILED").trim()
-                        if (deploymentStatus.contains("successfully rolled out")) {
-                            echo "Deployment is success"
-                        } else {
-                            sh """
-                                helm rollback $COMPONENT -n $PROJECT
-                                sleep 20
-                            """
-                            def rollbackStatus = sh(returnStdout: true, script: "kubectl rollout status deployment/catalogue --timeout=30s -n $PROJECT || echo FAILED").trim()
-                            if (rollbackStatus.contains("successfully rolled out")) {
-                                error "Deployment is Failure, Rollback Success"
-                            }
-                            else{
-                                error "Deployment is Failure, Rollback Failure. Application is not running"
-                            }
-                        }
-
-                    } 
-                } 
-            } 
-        } 
+    stages {
         stage('Deploy') {
             steps {
                 script {
@@ -54,16 +29,52 @@ pipeline {
                             kubectl apply -f 01-namespace.yaml
                             sed -i "s/IMAGE_VERSION/${params.appversion}/g" values-${params.deploy_to}.yaml
                             helm upgrade --install $COMPONENT -f values-${params.deploy_to}.yaml -n $PROJECT .
-                            #kubectl apply -f application.yaml
                         """
                     }
                 }
-            } 
-        } 
+            }
+        }
+
+        stage('Check Status'){
+            steps{
+                script{
+                    withAWS(credentials: 'aws-credits', region: 'us-east-1') {
+
+                        def deploymentStatus = sh(
+                            returnStdout: true,
+                            script: "kubectl rollout status deployment/catalogue --timeout=60s -n $PROJECT || echo FAILED"
+                        ).trim()
+
+                        if (deploymentStatus.contains("successfully rolled out")) {
+                            echo "Deployment is success"
+                        } else {
+
+                            echo "Deployment failed. Rolling back..."
+
+                            sh """
+                                helm rollback $COMPONENT -n $PROJECT
+                                sleep 20
+                            """
+
+                            def rollbackStatus = sh(
+                                returnStdout: true,
+                                script: "kubectl rollout status deployment/catalogue --timeout=60s -n $PROJECT || echo FAILED"
+                            ).trim()
+
+                            if (rollbackStatus.contains("successfully rolled out")) {
+                                error "Deployment Failed ❌, Rollback Success ✅"
+                            } else {
+                                error "Deployment Failed ❌, Rollback Failed ❌ Application is Down"
+                            }
+                        }
+                    }
+                }
+            }
+        }
       // API Testing
         stage('Functional Testing'){
             when{
-                expression { params.deploy_to = "dev" }
+                expression { params.deploy_to == "dev" }
             }
              steps{
                 script{
@@ -74,7 +85,7 @@ pipeline {
         // All components testing
         stage('Integration Testing'){
             when{
-                expression { params.deploy_to = "qa" }
+                expression { params.deploy_to == "qa" }
             }
              steps{
                 script{
@@ -84,7 +95,7 @@ pipeline {
         }
         stage('PROD Deploy') {
             when{
-                expression { params.deploy_to = "prod" }
+                expression { params.deploy_to == "prod" }
             }
             steps {
                 script {
